@@ -70,7 +70,7 @@ func (c *SealedCircuit) Define(api frontend.API) error {
 	}
 	api.AssertIsEqual(hpk, c.HPk)
 	for _, x := range c.X {
-		rg.Bits(x, cfg.XBits)
+		rg.Entry(x, cfg.XBits, cfg.XMax)
 	}
 	rg.Bits(c.Rho, 128)
 	com, err := gadgets.Commitment(api, LabelX, c.X, cfg.XBits, c.Rho)

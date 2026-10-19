@@ -20,8 +20,8 @@ bounds of the full parameter sets; full-scale runs are opt-in
 | A6 | Actual Q and q_del keep the margins of C.4, by script | `pkg/rlwe` `TestA6Margins`; `scripts/check_margins_v8.py` (independent, exact, from `params.jsonl`) |
 | B1 | pi_key: e_pk = 20, a secret coefficient 2, h_s mismatch; a not on the public coin refused by the verifier | `pkg/zk/keyproof` `TestKeyProofSmall`, `TestB1KeyProofBoundaries`; `pkg/market` `TestB1BuyerKeyNotOnPublicCoin` (seller), `TestC3SlotNotOnPublicCoin` (buyer) |
 | B2 | pi_member: w > w_max, w_hat not the expansion of w, e_c = 20, another s (h_sB), Com(f) of other w | `pkg/zk/member` `TestMemberSmall`, `TestB2MemberBoundaries` |
-| B3 | pi_enc: e_c1 = 20, data out of range, Com(x) of other S, another s | `pkg/zk/encproof` `TestEncProofSmall`, `TestB3EncProofBoundaries` |
-| B4 | Case 1 pi_eval: other S, e_fl = 2^sigma + 1, u' coefficient 2, e' = 20, remainder > Q/2, D_j >= q_del (D_j + delta Q^-1 mod r), mod-Q quotient out of range, other h_c or h_pk, h_D not of D, wrong y_z | `pkg/zk/evalc1` `TestEvalC1Small`, `TestB4EvalC1Boundaries` |
+| B3 | pi_enc: e_c1 = 20, data out of range (2^XBits; in the fixed-point class 2^20 + 1, while 2^20 passes), Com(x) of other S, another s | `pkg/zk/encproof` `TestEncProofSmall`, `TestB3EncProofBoundaries` |
+| B4 | Case 1 pi_eval: other S, a data entry of 2^20 + 1 in the fixed-point class (2^20 and 2^26 - 1 pass), e_fl = 2^sigma + 1, u' coefficient 2, e' = 20, remainder > Q/2, D_j >= q_del (D_j + delta Q^-1 mod r), mod-Q quotient out of range, other h_c or h_pk, h_D not of D, wrong y_z | `pkg/zk/evalc1` `TestEvalC1Small`, `TestB4EvalC1Boundaries` |
 | B5 | Case 2 pi_eval: c2,1 off relation (3), v coefficient 2, e1' = 20, w > w_max, Com(f) of other w | `pkg/zk/evalc2` `TestEvalC2Small`, `TestB5EvalC2Boundaries` |
 | B6 | pi_dec: p off the partial decryption, e_fl = 2^sigma + 1, quotient out of range, another s, another h_c21 | `pkg/zk/decproof` `TestDecProofSmall`, `TestB6DecProofBoundaries` |
 | B7 | A proof does not verify for another order ID | `pkg/zk/evalc1` `TestEvalC1Groth16Small`, `TestEvalC1OnChainSmall`; `pkg/zk/decproof` `TestDecProofOnChain`; `pkg/chain` `TestMarketCase2Rules`, `TestMarketCase1` |
@@ -44,6 +44,8 @@ bounds of the full parameter sets; full-scale runs are opt-in
 | E4 | the buyer does not order when the terms fail; T_ref - now < W | `pkg/market` `TestE4BuyerChecks` (W reduced to 200 blocks at its boundary) |
 | E5 | failing buyer proof -> reject -> refund; silent seller -> refund after T_ref | `pkg/market` `TestE5AbortPaths`; `cmd/e2e` reject, refund |
 | E6 | the buyer never uses a reverted claim's deliverable | `pkg/market` `TestE3E6LateClaim`; `cmd/e2e` late |
+| E7 | the seller rejects a key or an order ciphertext posted with a coefficient v + Q before it computes: no claim, no blob, the escrow returns at once | `pkg/market` `TestE7NonCanonical` |
+| E8 | the seller simulates each claim and does not send one that would revert; the Case 2 slot keeps its unused key | `pkg/market` `TestE8ClaimSimulated` |
 | F1 | packing round trip, every element below r_bls | `pkg/blob` `TestF1Packing` (68 and 43 bits) |
 | F2 | circuit P_D(z) equals ComputeProof's y_z at 100 random z | `pkg/zk/gadgets` `TestF2BlobEvalMatchesKZG`; `pkg/chain` `TestMarketCase1` |
 | F3 | off-chain vh equals the contract's blobhash(0) | `pkg/chain` `TestMarketCase1` (Claimed event) |
@@ -83,6 +85,21 @@ data; a posting by another account under the order's digest is ignored),
 `TestO6AbortPaths` (a failing proof and an input never posted are
 rejected) and `TestO6Retention` (a slot past W is unavailable until it is
 posted again); `cmd/e2e -board blob` runs the four scenarios on blob data.
+
+Tests E7 and E8 cover two of the seller's checks. A coefficient v of a
+posted key or ciphertext can be posted as v + Q when v < 2^QBits - Q, since
+the packing admits it; its digest is then taken over the posted values while
+the proofs and the claim use the residues, so the claim would revert
+on-chain, yet a reverted claim is included and publishes its blob. The
+seller therefore rejects posted values that are not canonical residues
+(`TestE7NonCanonical`: the buyer searches seeds or secrets for a shiftable
+coefficient, as an attacker would) and simulates each claim (`eth_call`,
+with the blob's versioned hashes in Case 1) before it sends it
+(`TestE8ClaimSimulated`: a market whose verifier belongs to another setup).
+Tests B3 and B4 also check the data bound of the fixed-point class: its
+statistics are averages in [0, 1], at most 2^20, and the circuits check
+that bound exactly (`valclass.Class.XMax`), not only the 21 bits that
+Com(x) packs.
 
 O7 is tested by `pkg/market` `TestO7Archive` (the buyer decodes from the
 archive after W, when the network no longer serves the blob; a restarted

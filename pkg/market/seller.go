@@ -60,9 +60,13 @@ func (o Outcome) String() string {
 // digests (pi_key once per buyer key), computes and proves, and claims only
 // while more than delta blocks remain before the refund time, checked again
 // after proving; otherwise it rejects, and a Case 2 slot whose partial
-// decryption was never sent stays usable. It retires a slot whose claim was
-// broadcast but not accepted, so that a session key never answers twice, and
-// erases a slot's secret once the slot is claimed or retired.
+// decryption was never sent stays usable. It rejects an order whose posted
+// values are not canonical residues, and simulates each claim before sending
+// it: a claim that reverts is still included and publishes its blob or
+// partial decryption, so one that would revert is not sent and the order is
+// rejected. It retires a slot whose claim was broadcast but not accepted, so
+// that a session key never answers twice, and erases a slot's secret once
+// the slot is claimed or retired.
 type Seller struct {
 	Acct   *chain.Account
 	Payout common.Address
@@ -377,6 +381,9 @@ func (s *Seller) handleCase1(orderID *big.Int, oi *chain.OrderInfo) (Outcome, st
 		if err != nil {
 			return s.reject(orderID, "malformed buyer key")
 		}
+		if !Canonical(p.Q(), polys[0]) {
+			return s.reject(orderID, "buyer key not in canonical form")
+		}
 		coin, err := p.CoinPoly(hashes.Case1KeyCoin(owner.Bytes(), keyIndex, hashes.LabelPkA))
 		if err != nil {
 			return Skipped, "", err
@@ -399,6 +406,9 @@ func (s *Seller) handleCase1(orderID *big.Int, oi *chain.OrderInfo) (Outcome, st
 	cp, seed, err := UnpackWithSeed(raw, t.QBits(), p.N(), 1)
 	if err != nil {
 		return s.reject(orderID, "malformed ciphertext")
+	}
+	if !Canonical(p.Q(), cp[0]) {
+		return s.reject(orderID, "ciphertext not in canonical form")
 	}
 	a1, err := p.SeededUniform(seed)
 	if err != nil {
@@ -464,7 +474,13 @@ func (s *Seller) handleCase1(orderID *big.Int, oi *chain.OrderInfo) (Outcome, st
 	}
 	start = clock.Now()
 	com, kzp := chain.KZGBytes(link.Commitment, link.Proof)
-	rcpt, err := s.M.ClaimBlob(s.Acct, orderID, chain.BlobClaim{HD: hashes.Bytes32(hD), YZ: link.Y, Commitment: com, KzgProof: kzp}, pb, sc, 3_000_000)
+	bc := chain.BlobClaim{HD: hashes.Bytes32(hD), YZ: link.Y, Commitment: com, KzgProof: kzp}
+	if err := s.M.CallClaimBlob(s.Acct.Addr, orderID, bc, pb, sc, 3_000_000); err != nil {
+		s.mark("seller.simulate_claim", start)
+		return s.reject(orderID, "claim would revert: "+err.Error())
+	}
+	start = s.mark("seller.simulate_claim", start)
+	rcpt, err := s.M.ClaimBlob(s.Acct, orderID, bc, pb, sc, 3_000_000)
 	if rcpt != nil { // included, even if reverted: the network keeps the blob
 		s.Net.Publish(sc, rcpt.BlockNumber.Uint64())
 	}
@@ -493,6 +509,9 @@ func (s *Seller) handleCase2(orderID *big.Int, oi *chain.OrderInfo) (Outcome, st
 	cp, err := UnpackPolys(raw, t.QBits(), p.N(), 1)
 	if err != nil {
 		return s.reject(orderID, "malformed c2,1")
+	}
+	if !Canonical(p.Q(), cp[0]) {
+		return s.reject(orderID, "c2,1 not in canonical form")
 	}
 	dc := t.Dec.Entry.Config.(decproof.Config)
 	if h, err := decproof.DigestC21(dc, cp[0]); err != nil || hashes.Bytes32(h) != oi.HInput {
@@ -530,6 +549,13 @@ func (s *Seller) handleCase2(orderID *big.Int, oi *chain.OrderInfo) (Outcome, st
 		return out, why, err
 	}
 	start = clock.Now()
+	if err := s.M.CallClaimDec(s.Acct.Addr, orderID, pd, pb, 1_000_000); err != nil {
+		// p was never sent: the slot may serve another order.
+		slot.Withdraw()
+		s.mark("seller.simulate_claim", start)
+		return s.reject(orderID, "claim would revert: "+err.Error())
+	}
+	start = s.mark("seller.simulate_claim", start)
 	rcpt, err := s.M.ClaimDec(s.Acct, orderID, pd, pb, 1_000_000)
 	s.gas("claimDec", rcpt)
 	s.mark("seller.claim_tx", start)

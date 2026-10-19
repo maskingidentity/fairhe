@@ -1,4 +1,4 @@
-results/
+/results/
 *.exe
 tmpprobe/
 contracts/out/

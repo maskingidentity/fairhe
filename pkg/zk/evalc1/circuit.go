@@ -38,6 +38,7 @@ type Config struct {
 	DBits   int      // bit length of q_del - 1
 	DPer    int      // D coefficients per blob element
 	XBits   int      // bits of an entry of S
+	XMax    *big.Int // if set, the largest entry of S (below 2^XBits)
 	PtScale int64    // K_pt, the scale of the plaintext operand
 	BErr    int64
 	SigmaFl int
@@ -105,7 +106,7 @@ func (c *Circuit) Define(api frontend.API) error {
 
 	// The data in the agreed input range, opening Com(x).
 	for _, x := range c.X {
-		rg.Bits(x, cfg.XBits)
+		rg.Entry(x, cfg.XBits, cfg.XMax)
 	}
 	rg.Bits(c.Rho, 128)
 	com, err := gadgets.Commitment(api, LabelX, c.X, cfg.XBits, c.Rho)

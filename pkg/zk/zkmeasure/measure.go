@@ -193,11 +193,16 @@ func resultsDir() (string, error) {
 	}
 }
 
-// GitCommit returns the short hash of HEAD (empty when git is unavailable).
+// GitCommit returns the short hash of HEAD, followed by "-dirty" when the
+// tracked files differ from it (empty when git is unavailable).
 func GitCommit() string {
 	out, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	c := strings.TrimSpace(string(out))
+	if exec.Command("git", "diff", "--quiet", "HEAD").Run() != nil {
+		c += "-dirty"
+	}
+	return c
 }

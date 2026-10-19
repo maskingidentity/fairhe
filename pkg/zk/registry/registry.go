@@ -120,6 +120,15 @@ func All(scale Scale) ([]Entry, error) {
 			out["x_bits"], out["f_bits"] = fmt.Sprint(cl.XBits), fmt.Sprint(cl.FBits)
 			return out
 		}
+		// withData adds the exact data bound of the fixed-point class to the
+		// circuits that range check S (pi_enc and the Case 1 pi_eval).
+		withData := func(m map[string]string) map[string]string {
+			out := withClass(m)
+			if cl.XMax > 0 {
+				out["x_max"] = fmt.Sprint(cl.XMax)
+			}
+			return out
+		}
 		clCopy := cl
 
 		kc := keyproof.ConfigFor(p)
@@ -133,12 +142,12 @@ func All(scale Scale) ([]Entry, error) {
 			}
 			out = append(out, Entry{Circuit: PiMember, Params: lit.Name, Curve: ecc.BLS12_381, New: func() frontend.Circuit { return member.New(mc) },
 				Constants: withClass(base), Config: mc, RLWE: p, Class: &clCopy})
-			ec, err := evalc1.ConfigFor(p, cl.M(), cl.XBits, sNormL1(lit, scale, cl))
+			ec, err := evalc1.ConfigFor(p, cl.M(), cl.XBits, cl.XBound(), sNormL1(lit, scale, cl))
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, Entry{Circuit: PiEvalC1, Params: lit.Name, Curve: ecc.BLS12_381, OnChain: true, New: func() frontend.Circuit { return evalc1.New(ec) },
-				Constants: withClass(base), Config: ec, RLWE: p, Class: &clCopy})
+				Constants: withData(base), Config: ec, RLWE: p, Class: &clCopy})
 			continue
 		}
 		enc, err := encproof.ConfigFor(p, cl)
@@ -146,7 +155,7 @@ func All(scale Scale) ([]Entry, error) {
 			return nil, err
 		}
 		out = append(out, Entry{Circuit: PiEnc, Params: lit.Name, Curve: ecc.BN254, New: func() frontend.Circuit { return encproof.New(enc) },
-			Constants: withClass(base), Config: enc, RLWE: p, Class: &clCopy})
+			Constants: withData(base), Config: enc, RLWE: p, Class: &clCopy})
 		e2, err := evalc2.ConfigFor(p, cl)
 		if err != nil {
 			return nil, err

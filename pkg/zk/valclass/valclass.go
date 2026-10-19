@@ -31,6 +31,10 @@ type Class struct {
 	Unit  int64 // 1 for BFV, 2^10 for the fixed-point (CKKS) version
 	FBits int   // bits of the offset weights w_j + WMax in Com(f)
 	XBits int   // bits of an entry of S in Com(x)
+	// XMax, when positive, is the largest entry of S and lies below
+	// 2^XBits: the fixed-point statistics are averages in [0, 1], at most
+	// 2^20, while Com(x) packs them in 21 bits.
+	XMax int64
 }
 
 // M returns the number of entries of S and w_hat.
@@ -43,7 +47,25 @@ func BFV(cols int) Class {
 
 // CKKS returns the fixed-point class of the paper (or a reduced one).
 func CKKS(cols int) Class {
-	return Class{Cols: cols, WMax: valuation.WMaxFixedInt, Beta: 0, Unit: 1 << valuation.WFracBits, FBits: 16, XBits: valuation.FracBits + 1}
+	return Class{Cols: cols, WMax: valuation.WMaxFixedInt, Beta: 0, Unit: 1 << valuation.WFracBits, FBits: 16, XBits: valuation.FracBits + 1,
+		XMax: 1 << valuation.FracBits}
+}
+
+// XBound returns XMax, or nil when the bit width XBits is the bound.
+func (c Class) XBound() *big.Int {
+	if c.XMax > 0 {
+		return big.NewInt(c.XMax)
+	}
+	return nil
+}
+
+// XTop returns the largest entry of S that the circuits accept: XMax, or
+// 2^XBits - 1.
+func (c Class) XTop() *big.Int {
+	if c.XMax > 0 {
+		return big.NewInt(c.XMax)
+	}
+	return new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(c.XBits)), big.NewInt(1))
 }
 
 // Pairs returns the (j, k) pairs of the quadratic block: the diagonal, then
@@ -134,10 +156,11 @@ func (c Class) Weights(api frontend.API, rg *gadgets.Ranger, w []frontend.Variab
 	return append(wh, frontend.Variable(cst)), nil
 }
 
-// Data constrains the entries of S to XBits bits and opens Com(x).
+// Data constrains the entries of S to [0, XMax] (to XBits bits when XMax
+// is not set) and opens Com(x).
 func (c Class) Data(api frontend.API, rg *gadgets.Ranger, x []frontend.Variable, rho, comX frontend.Variable) error {
 	for _, v := range x {
-		rg.Bits(v, c.XBits)
+		rg.Entry(v, c.XBits, c.XBound())
 	}
 	rg.Bits(rho, 8*hashes.SaltBytes)
 	com, err := gadgets.Commitment(api, LabelX, x, c.XBits, rho)

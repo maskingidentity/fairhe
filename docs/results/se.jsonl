@@ -1,0 +1,10 @@
+{"constraints":5369,"elements":1,"field":"bls12_381","git_commit":"ab2610f"}
+{"constraints":5928,"elements":2,"field":"bls12_381","git_commit":"ab2610f"}
+{"constraints":9282,"elements":8,"field":"bls12_381","git_commit":"ab2610f"}
+{"constraints":22698,"elements":32,"field":"bls12_381","git_commit":"ab2610f"}
+{"constraints":40586,"elements":64,"field":"bls12_381","git_commit":"ab2610f"}
+{"constraints":5369,"elements":1,"field":"bn254","git_commit":"ab2610f"}
+{"constraints":5928,"elements":2,"field":"bn254","git_commit":"ab2610f"}
+{"constraints":9282,"elements":8,"field":"bn254","git_commit":"ab2610f"}
+{"constraints":22698,"elements":32,"field":"bn254","git_commit":"ab2610f"}
+{"constraints":40586,"elements":64,"field":"bn254","git_commit":"ab2610f"}

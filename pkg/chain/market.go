@@ -178,6 +178,32 @@ func (m *Market) ClaimBlob(from *Account, orderID *big.Int, c BlobClaim, proof [
 	return m.Env.SendBlobTx(from, m.Addr, data, sc, gasLimit)
 }
 
+// CallClaimDec simulates the Case 2 claim against the latest block without
+// sending it and returns the revert error, if any: a claim that reverts is
+// still included, and its calldata publishes the partial decryption.
+func (m *Market) CallClaimDec(from common.Address, orderID, p *big.Int, proof []byte, gasLimit uint64) error {
+	data, err := m.Con.ABI.Pack("claimDec", orderID, p, proof)
+	if err != nil {
+		return err
+	}
+	_, err = m.Env.Client.CallContract(context.Background(), ethereum.CallMsg{From: from, To: &m.Addr, Gas: gasLimit, Data: data}, nil)
+	return err
+}
+
+// CallClaimBlob simulates the Case 1 claim against the latest block with the
+// versioned hashes of the sidecar's blobs, which BLOBHASH reads, and returns
+// the revert error, if any: a claim that reverts is still included and
+// publishes its blob.
+func (m *Market) CallClaimBlob(from common.Address, orderID *big.Int, c BlobClaim, proof []byte, sc *types.BlobTxSidecar, gasLimit uint64) error {
+	data, err := m.Con.ABI.Pack("claimBlob", orderID, c, proof)
+	if err != nil {
+		return err
+	}
+	_, err = m.Env.Client.CallContract(context.Background(), ethereum.CallMsg{From: from, To: &m.Addr, Gas: gasLimit, Data: data,
+		BlobHashes: sc.BlobHashes()}, nil)
+	return err
+}
+
 // ClaimBlobNoBlob sends the Case 1 claim without a blob (expected to revert).
 func (m *Market) ClaimBlobNoBlob(from *Account, orderID *big.Int, c BlobClaim, proof []byte) (*types.Receipt, error) {
 	return m.send(from, nil, 3_000_000, "claimBlob", orderID, c, proof)

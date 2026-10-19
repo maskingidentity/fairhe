@@ -10,9 +10,10 @@ import (
 )
 
 // ConfigFor returns the configuration of a Case 1 parameter set for a class
-// with m entries released at coefficient m - 1, entries of xBits bits, and
-// the class bound sNormL1 on ||S_bar||_1 at the plaintext scale.
-func ConfigFor(p *rlwe.Params, m, xBits int, sNormL1 *big.Int) (Config, error) {
+// with m entries released at coefficient m - 1, entries of xBits bits (at
+// most xMax if it is not nil), and the class bound sNormL1 on ||S_bar||_1
+// at the plaintext scale.
+func ConfigFor(p *rlwe.Params, m, xBits int, xMax, sNormL1 *big.Int) (Config, error) {
 	if p.Case() != rlwe.Case1 {
 		return Config{}, fmt.Errorf("evalc1: parameters of case %d", p.Case())
 	}
@@ -25,6 +26,7 @@ func ConfigFor(p *rlwe.Params, m, xBits int, sNormL1 *big.Int) (Config, error) {
 		DBits:   dBits,
 		DPer:    hashes.PackPerElement(hashes.BLS12381, dBits),
 		XBits:   xBits,
+		XMax:    xMax,
 		PtScale: p.PtScale(),
 		BErr:    int64(p.BErr()),
 		SigmaFl: p.SigmaFl(),

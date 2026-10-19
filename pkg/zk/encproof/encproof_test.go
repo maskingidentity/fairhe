@@ -85,7 +85,7 @@ func TestEncProofSmall(t *testing.T) {
 		m := tc.cl.M()
 		S := make([]int64, m)
 		for k := range S {
-			S[k] = int64(1)<<(tc.cl.XBits-1) + int64(k)
+			S[k] = tc.cl.XTop().Int64() - int64(k)
 		}
 		in := newInstance(t, lit, tc.cl, S)
 		field := ecc.BN254.ScalarField()
@@ -125,8 +125,9 @@ func TestEncProofSmall(t *testing.T) {
 }
 
 // TestB3EncProofBoundaries: an encryption noise coefficient of exactly
-// +-20 (while +-19 is accepted), Com(x) of other data, and h_s of another
-// secret.
+// +-20 (while +-19 is accepted), Com(x) of other data, h_s of another
+// secret, and in the fixed-point class a data entry of 2^20 + 1 (while 2^20
+// is accepted).
 func TestB3EncProofBoundaries(t *testing.T) {
 	for _, tc := range []struct {
 		lit rlwe.ParamsLiteral
@@ -170,6 +171,18 @@ func TestB3EncProofBoundaries(t *testing.T) {
 		c.HS = newInstance(t, lit, tc.cl, S).slot.HS
 		if test.IsSolved(New(in.cfg), c, field) == nil {
 			t.Fatalf("%s: h_s of another secret accepted", lit.Name)
+		}
+		// The data range of the fixed-point class: an entry of 2^20 is
+		// accepted and 2^20 + 1, which fits the 21 bits of Com(x), is refused.
+		if tc.cl.XMax > 0 {
+			for _, d := range []int64{0, 1} {
+				edge := append([]int64(nil), S...)
+				edge[1] = tc.cl.XMax + d
+				err := test.IsSolved(New(in.cfg), newInstance(t, lit, tc.cl, edge).assign(t), field)
+				if (d == 0) != (err == nil) {
+					t.Fatalf("%s: data entry %d: accepted = %v", lit.Name, edge[1], err == nil)
+				}
+			}
 		}
 	}
 }

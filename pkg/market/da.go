@@ -134,6 +134,21 @@ func UnpackPolys(b []byte, bits, n, count int) ([][]*big.Int, error) {
 	return out, nil
 }
 
+// Canonical reports whether every coefficient lies in [0, q). The ledger
+// records digests of the posted values, which the packing admits up to
+// 2^bits - 1, while the HE operations and the claim use their residues: a
+// coefficient posted as v + q matches its digest but not the claim's.
+func Canonical(q *big.Int, polys ...[]*big.Int) bool {
+	for _, p := range polys {
+		for _, c := range p {
+			if c.Sign() < 0 || c.Cmp(q) >= 0 {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // SeedBytes is the length of the seed that stands for a uniform component.
 const SeedBytes = 32
 

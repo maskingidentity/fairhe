@@ -74,8 +74,9 @@ func claim(t testing.TB, p *rlwe.Params, wh, S []int64) (*Inputs, *rlwe.Cipherte
 }
 
 // small returns a reduced instance: N = 64, m = 8, released coefficient 7,
-// with the primes, q_del and flood of a flagship set.
-func small(t testing.TB, lit rlwe.ParamsLiteral, xBits int) (Config, *Inputs, *rlwe.Ciphertext) {
+// with the primes, q_del and flood of a flagship set, and data of xBits bits
+// (at most xMax if it is not nil).
+func small(t testing.TB, lit rlwe.ParamsLiteral, xBits int, xMax *big.Int) (Config, *Inputs, *rlwe.Ciphertext) {
 	t.Helper()
 	const m = 8
 	lit.LogN, lit.J = 6, m-1
@@ -84,13 +85,17 @@ func small(t testing.TB, lit rlwe.ParamsLiteral, xBits int) (Config, *Inputs, *r
 		t.Fatal(err)
 	}
 	rng := mrand.New(mrand.NewPCG(5, 6))
+	top := int64(1)<<xBits - 1
+	if xMax != nil {
+		top = xMax.Int64()
+	}
 	S, wh := make([]int64, m), make([]int64, m)
 	for k := range S {
-		S[k] = rng.Int64N(int64(1) << xBits)
+		S[k] = rng.Int64N(top + 1)
 		wh[k] = rng.Int64N(1<<20) - 1<<19
 	}
 	sNorm := new(big.Int).Lsh(big.NewInt(m), uint(xBits))
-	cfg, err := ConfigFor(p, m, xBits, sNorm)
+	cfg, err := ConfigFor(p, m, xBits, xMax, sNorm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,8 +107,9 @@ func TestEvalC1Small(t *testing.T) {
 	for _, tc := range []struct {
 		lit   rlwe.ParamsLiteral
 		xBits int
-	}{{rlwe.Case1BFV(), 26}, {rlwe.Case1CKKS(), 21}} {
-		cfg, in, _ := small(t, tc.lit, tc.xBits)
+		xMax  *big.Int
+	}{{rlwe.Case1BFV(), 26, nil}, {rlwe.Case1CKKS(), 21, big.NewInt(1 << valuation.FracBits)}} {
+		cfg, in, _ := small(t, tc.lit, tc.xBits, tc.xMax)
 		w, _, err := Assign(cfg, in)
 		if err != nil {
 			t.Fatal(err)
@@ -135,9 +141,11 @@ func TestEvalC1Small(t *testing.T) {
 }
 
 // TestB4EvalC1Boundaries: each wrong witness breaks one check only. The
-// sanitised ciphertext and D are recomputed for a flood of 2^sigma_fl + 1,
-// a re-randomiser coefficient 2 and errors of +-20 (the boundary values and
-// ternary coefficients pass); D_j + 1 with r_j + Q leaves |r_j| <= Q/2;
+// claim is recomputed for a data entry of 2^20 + 1 in the fixed-point class
+// (2^20, and 2^26 - 1 in the integer class, pass); the sanitised ciphertext
+// and D are recomputed for a flood of 2^sigma_fl + 1, a re-randomiser
+// coefficient 2 and errors of +-20 (the boundary values and ternary
+// coefficients pass); D_j + 1 with r_j + Q leaves |r_j| <= Q/2;
 // D_j + Q^-1 in the field with r_j + 1 (h_D and y_z recomputed) leaves
 // D_j in [0, q_del); the released coefficient or a coefficient of the
 // second component + 1 with its quotient by Q shifted by -Q^-1 leaves the
@@ -147,8 +155,9 @@ func TestB4EvalC1Boundaries(t *testing.T) {
 	for _, tc := range []struct {
 		lit   rlwe.ParamsLiteral
 		xBits int
-	}{{rlwe.Case1BFV(), 26}, {rlwe.Case1CKKS(), 21}} {
-		cfg, in, san := small(t, tc.lit, tc.xBits)
+		xMax  *big.Int
+	}{{rlwe.Case1BFV(), 26, nil}, {rlwe.Case1CKKS(), 21, big.NewInt(1 << valuation.FracBits)}} {
+		cfg, in, san := small(t, tc.lit, tc.xBits, tc.xMax)
 		p, field, name := in.Params, ecc.BLS12_381.ScalarField(), tc.lit.Name
 		J, Q := p.J(), cfg.Q
 		qinv := new(big.Int).ModInverse(new(big.Int).Mod(Q, field), field)
@@ -187,6 +196,28 @@ func TestB4EvalC1Boundaries(t *testing.T) {
 			return m
 		}
 		expect("honest claim", solve(in), true)
+
+		// The data range: an entry at the largest value of the class is
+		// accepted and, where that value lies below 2^XBits (the fixed-point
+		// class), the next one is refused; the claim is recomputed for the
+		// new data.
+		xTop := new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), uint(cfg.XBits)), big.NewInt(1))
+		if cfg.XMax != nil {
+			xTop = cfg.XMax
+		}
+		for _, d := range []int64{0, 1} {
+			if d == 1 && cfg.XMax == nil {
+				break // 2^XBits does not fit the limbs of Com(x)
+			}
+			S := append([]int64(nil), in.X...)
+			S[0] = xTop.Int64() + d
+			ones := make([]int64, len(S))
+			for k := range ones {
+				ones[k] = 1
+			}
+			in2, _ := claim(t, p, ones, S)
+			expect("data entry "+big.NewInt(S[0]).String(), solve(in2), d == 0)
+		}
 
 		// The flood at +-2^sigma (accepted) and +-(2^sigma + 1).
 		top := new(big.Int).Lsh(big.NewInt(1), uint(cfg.SigmaFl))
@@ -320,7 +351,7 @@ func toBig(v frontend.Variable) *big.Int {
 // TestEvalC1Groth16Small proves a reduced instance and checks that the proof
 // verifies only for its order ID, with one commitment.
 func TestEvalC1Groth16Small(t *testing.T) {
-	cfg, in, _ := small(t, rlwe.Case1BFV(), 26)
+	cfg, in, _ := small(t, rlwe.Case1BFV(), 26, nil)
 	w, _, err := Assign(cfg, in)
 	if err != nil {
 		t.Fatal(err)
@@ -374,11 +405,11 @@ func TestEvalC1FullScale(t *testing.T) {
 		)
 		ds := valuation.Generate(31, valuation.NMax)
 		if lit.Scheme == rlwe.BFV {
-			cfg, err = ConfigFor(p, valuation.M, 26, valuation.SNormL1MaxInt())
+			cfg, err = ConfigFor(p, valuation.M, 26, nil, valuation.SNormL1MaxInt())
 			wh = valuation.ExpandWeights(valuation.RandomWeights(32, valuation.WMax))
 			S = valuation.Stats(ds)
 		} else {
-			cfg, err = ConfigFor(p, valuation.M, valuation.FracBits+1, valuation.SNormL1MaxFixed())
+			cfg, err = ConfigFor(p, valuation.M, valuation.FracBits+1, big.NewInt(1<<valuation.FracBits), valuation.SNormL1MaxFixed())
 			wh = valuation.ExpandWeightsFixed(valuation.RandomWeights(32, valuation.WMaxFixedInt))
 			S = valuation.StatsFixed(ds)
 		}
@@ -424,7 +455,7 @@ func TestEvalC1OnChainSmall(t *testing.T) {
 	if testing.Short() {
 		t.Skip("needs python with py-solc-x")
 	}
-	cfg, in, _ := small(t, rlwe.Case1BFV(), 26)
+	cfg, in, _ := small(t, rlwe.Case1BFV(), 26, nil)
 	w, _, err := Assign(cfg, in)
 	if err != nil {
 		t.Fatal(err)

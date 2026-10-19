@@ -54,6 +54,19 @@ func (r *Ranger) InRange(v frontend.Variable, lo, hi *big.Int) {
 	r.rc.Check(r.api.Sub(hi, v), b)
 }
 
+// Entry asserts 0 <= v <= max exactly when max is set (max < 2^bits), and
+// 0 <= v < 2^bits otherwise.
+func (r *Ranger) Entry(v frontend.Variable, bits int, max *big.Int) {
+	if max == nil {
+		r.Bits(v, bits)
+		return
+	}
+	if max.BitLen() > bits {
+		panic("gadgets: entry bound above the bit width")
+	}
+	r.InRange(v, big.NewInt(0), max)
+}
+
 // InSym asserts -bound <= v <= bound.
 func (r *Ranger) InSym(v frontend.Variable, bound *big.Int) {
 	r.InRange(v, new(big.Int).Neg(bound), bound)

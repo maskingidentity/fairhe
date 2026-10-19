@@ -24,8 +24,9 @@ func TestSealedEvalC1(t *testing.T) {
 	for _, tc := range []struct {
 		lit   rlwe.ParamsLiteral
 		xBits int
-	}{{rlwe.Case1BFV(), 26}, {rlwe.Case1CKKS(), 21}} {
-		cfg, in, _ := small(t, tc.lit, tc.xBits)
+		xMax  *big.Int
+	}{{rlwe.Case1BFV(), 26, nil}, {rlwe.Case1CKKS(), 21, big.NewInt(1 << valuation.FracBits)}} {
+		cfg, in, _ := small(t, tc.lit, tc.xBits, tc.xMax)
 		etaD := make([]byte, hashes.SaltBytes)
 		rand.Read(etaD)
 		a, pub, err := AssignSealed(cfg, in, etaD)
@@ -68,11 +69,11 @@ func TestSealedEvalC1FullScale(t *testing.T) {
 		}
 		p := rlwe.MustParams(lit)
 		ds := valuation.Generate(31, valuation.NMax)
-		cfg, err := ConfigFor(p, valuation.M, 26, valuation.SNormL1MaxInt())
+		cfg, err := ConfigFor(p, valuation.M, 26, nil, valuation.SNormL1MaxInt())
 		wh := valuation.ExpandWeights(valuation.RandomWeights(32, valuation.WMax))
 		S := valuation.Stats(ds)
 		if lit.Scheme == rlwe.CKKS {
-			cfg, err = ConfigFor(p, valuation.M, valuation.FracBits+1, valuation.SNormL1MaxFixed())
+			cfg, err = ConfigFor(p, valuation.M, valuation.FracBits+1, big.NewInt(1<<valuation.FracBits), valuation.SNormL1MaxFixed())
 			wh = valuation.ExpandWeightsFixed(valuation.RandomWeights(32, valuation.WMaxFixedInt))
 			S = valuation.StatsFixed(ds)
 		}
